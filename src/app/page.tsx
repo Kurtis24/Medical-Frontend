@@ -59,6 +59,7 @@ export default function Home() {
               gradientColors={{ from: gradient.from, to: gradient.to }}
               lastOpened={getRandomDate()}
             />
+            
           );
         })}
       </div>

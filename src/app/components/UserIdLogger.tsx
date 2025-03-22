@@ -14,5 +14,6 @@ export default function UserIdLogger() {
     }
   }, [user]);
 
-  return null; // This component doesn't render anything
+  // This component doesn't render anything
+  return null;
 } 
