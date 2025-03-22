@@ -3,14 +3,25 @@ import { useEffect, useState } from "react";
 
 interface Props {
   projectId: string;
+  view: "selection" | "research" | "documents";
+  setView: (view: "selection" | "research" | "documents") => void;
+  expandedCard: number | null;
+  setExpandedCard: (id: number | null) => void;
+  selectedCard: number | null;
+  setSelectedCard: (id: number | null) => void;
 }
 
-export default function ResearchPaperPanel({ projectId }: Props) {
+export default function ResearchPaperPanel({ 
+  projectId, 
+  view, 
+  setView,
+  expandedCard,
+  setExpandedCard,
+  selectedCard,
+  setSelectedCard 
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [paper, setPaper] = useState("");
-  const [view, setView] = useState<"research" | "selection" | "documents">("selection");
-  const [expandedCard, setExpandedCard] = useState<number | null>(null);
-  const [selectedCard, setSelectedCard] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchPaper = async () => {
@@ -198,63 +209,27 @@ export default function ResearchPaperPanel({ projectId }: Props) {
   };
 
   return (
-    <div>
-      {/* Toggle Tab Selector */}
-      <div className="relative w-[250px] h-[36px] bg-white border-2 border-gray-800 rounded-md flex items-center shadow-md mb-6">
-        {["selection", "research", "documents"].map((val, i) => {
-          const isDisabled = selectedCard !== null && val === "selection";
-          const label = val.charAt(0).toUpperCase() + val.slice(1);
-          return (
-            <label
-              key={val}
-              className={`relative w-1/3 h-full flex items-center justify-center group ${
-                isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-              }`}
-            >
-              <input
-                type="radio"
-                name="tab"
-                value={val}
-                checked={view === val}
-                onChange={() => !isDisabled && setView(val as typeof view)}
-                className="absolute w-full h-full opacity-0"
-                disabled={isDisabled}
-              />
-              <div
-                className={`w-full h-[28px] mx-[2px] rounded-md flex items-center justify-center transition-colors duration-200 ${
-                  view === val ? "bg-gray-800 text-white" : "group-hover:bg-gray-200 text-gray-800"
-                }`}
-              >
-                <span className="text-sm font-medium">{label}</span>
-              </div>
-            </label>
-          );
-        })}
-      </div>
+    <div className="relative">
+      {renderContent()}
 
-      {/* Content Switcher */}
-      <div className="relative">
-        {renderContent()}
-
-        {view !== "documents" && (
-          <button
-            onClick={() => setView(view === "selection" ? "research" : "documents")}
-            className="fixed bottom-6 right-6 w-16 h-16 rounded-full bg-black text-white shadow-lg transition duration-300 transform hover:scale-110 hover:bg-gray-900 flex items-center justify-center"
-            aria-label="Toggle View"
+      {view !== "documents" && (
+        <button
+          onClick={() => setView(view === "selection" ? "research" : "documents")}
+          className="fixed bottom-6 right-6 w-16 h-16 rounded-full bg-black text-white shadow-lg transition duration-300 transform hover:scale-110 hover:bg-gray-900 flex items-center justify-center"
+          aria-label="Toggle View"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-8 h-8"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-8 h-8"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        )}
-      </div>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
