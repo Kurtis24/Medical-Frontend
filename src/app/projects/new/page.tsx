@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-type UploadStatus = 'uploading' | 'completed' | 'failed';
+type UploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
 
 interface UploadItem {
   id: string;
@@ -28,44 +28,33 @@ export default function NewProjectUploadPage() {
 
       // Start uploading immediately
       updatedItems[itemIndex].status = 'uploading';
+      updatedItems[itemIndex].progress = 0;
       setUploadItems([...updatedItems]);
       activeUploads.current[item.id] = true;
 
-      // Simulate upload progress
-      await new Promise<void>((resolve, reject) => {
-        let progress = 0;
-        const interval = setInterval(() => {
-          // Check if upload was cancelled
-          if (!activeUploads.current[item.id]) {
-            clearInterval(interval);
-            reject(new Error('Upload cancelled'));
-            return;
-          }
+      // Create FormData and append the file
+      const formData = new FormData();
+      formData.append('files', item.file);
 
-          progress += 10;
-          
-          setUploadItems(current => {
-            const updatedItems = [...current];
-            const itemIndex = updatedItems.findIndex(i => i.id === item.id);
-            
-            if (itemIndex !== -1) {
-              updatedItems[itemIndex].progress = progress;
-              
-              if (progress >= 100) {
-                clearInterval(interval);
-                updatedItems[itemIndex].status = 'completed';
-                delete activeUploads.current[item.id];
-                resolve();
-              }
-            }
-            
-            return updatedItems;
-          });
-          
-          if (progress >= 100) {
-            clearInterval(interval);
-          }
-        }, 500);
+      // Perform the upload
+      const response = await fetch('/api/generate-hypotheses', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      // Mark as completed
+      setUploadItems(current => {
+        const updatedItems = [...current];
+        const itemIndex = updatedItems.findIndex(i => i.id === item.id);
+        if (itemIndex !== -1) {
+          updatedItems[itemIndex].status = 'completed';
+          updatedItems[itemIndex].progress = 100;
+        }
+        return updatedItems;
       });
 
     } catch (err) {
@@ -87,31 +76,33 @@ export default function NewProjectUploadPage() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (selected && selected.size <= 10 * 1024 * 1024) {
-      setError(null);
-      setShowBounce(true);
-      
-      // Create new upload item and start upload immediately
-      const newItem: UploadItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        file: selected,
-        progress: 0,
-        status: 'uploading'  // Start as uploading instead of pending
-      };
-
-      setUploadItems(prev => [...prev, newItem]);
-      uploadFile(newItem);
-
-      setTimeout(() => {
-        setShowBounce(false);
-      }, 2000);
-
-      // Reset the input value to allow uploading the same file again
-      e.target.value = '';
-    } else {
-      setError("File too large (max 10MB)");
+    const files = Array.from(e.target.files || []);
+    const validFiles = files.filter(file => file.size <= 10 * 1024 * 1024);
+    
+    if (validFiles.length === 0) {
+      setError("No valid files selected (max 10MB each)");
+      return;
     }
+
+    setError(null);
+    setShowBounce(true);
+    
+    // Create new upload items for each valid file
+    const newItems: UploadItem[] = validFiles.map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
+      file: file,
+      progress: 0,
+      status: 'pending'  // Start as pending
+    }));
+
+    setUploadItems(prev => [...prev, ...newItems]);
+
+    setTimeout(() => {
+      setShowBounce(false);
+    }, 2000);
+
+    // Reset the input value to allow uploading the same files again
+    e.target.value = '';
   };
 
   const handleRemoveFile = (id: string) => {
@@ -125,13 +116,58 @@ export default function NewProjectUploadPage() {
     setError(null); // Clear any existing errors
   };
 
-  const handleGenerateHypotheses = () => {
-    router.push("/projects/[id]");
+  const handleGenerateHypotheses = async () => {
+    try {
+      // Create FormData with all files
+      const formData = new FormData();
+      uploadItems.forEach(item => {
+        formData.append('files', item.file);
+      });
+
+      // Update all items to uploading status
+      setUploadItems(current => 
+        current.map(item => ({
+          ...item,
+          status: 'uploading',
+          progress: 0
+        }))
+      );
+
+      const response = await fetch('/api/generate-hypotheses', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.details || 'Failed to generate hypotheses');
+      }
+      
+      // Store the hypotheses in localStorage for the project page to access
+      localStorage.setItem('generatedHypotheses', JSON.stringify(data.hypotheses));
+      
+      // Generate a new project ID and navigate to the project page
+      const projectId = Math.random().toString(36).substr(2, 9);
+      router.push(`/projects/${projectId}`);
+    } catch (error) {
+      console.error('Error generating hypotheses:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate hypotheses');
+      // Update all items to failed status
+      setUploadItems(current => 
+        current.map(item => ({
+          ...item,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Upload failed'
+        }))
+      );
+    }
   };
 
   const getStatusColor = (status: UploadStatus) => {
     switch (status) {
-      case 'uploading': return 'bg-blue-500';
+      case 'pending': return 'bg-gray-400';
+      case 'uploading': return 'bg-blue-300';
       case 'completed': return 'bg-green-500';
       case 'failed': return 'bg-red-500';
       default: return 'bg-gray-200';
@@ -140,6 +176,7 @@ export default function NewProjectUploadPage() {
 
   const getStatusText = (status: UploadStatus) => {
     switch (status) {
+      case 'pending': return 'Pending';
       case 'uploading': return 'Uploading...';
       case 'completed': return 'Completed';
       case 'failed': return 'Failed';
@@ -147,238 +184,142 @@ export default function NewProjectUploadPage() {
     }
   };
 
-  const areAllUploadsComplete = uploadItems.length > 0 && uploadItems.every(item => item.status === 'completed');
+  const areAllUploadsComplete = uploadItems.length > 0 && uploadItems.every(item => item.status === 'pending');
   const hasFailedUploads = uploadItems.some(item => item.status === 'failed');
 
   return (
-    <>
-      {/* 🔧 Combined styles */}
-      <style jsx>{`
-        @keyframes settleBounce {
-          0% { transform: translateY(-25%); }
-          20% { transform: translateY(0); }
-          40% { transform: translateY(-10%); }
-          60% { transform: translateY(0); }
-          80% { transform: translateY(-4%); }
-          100% { transform: translateY(0); }
-        }
-        .animate-settleBounce {
-          animation: settleBounce 1.5s ease-out forwards;
-        }
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <div className="text-center">
+          <h2 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
+            Upload Research Data
+          </h2>
+          <p className="mt-3 text-xl text-gray-500 sm:mt-4">
+            Upload your research data files to generate hypotheses
+          </p>
+        </div>
 
-        .custom-button-blue {
-          background-color: #1e3a8a; /* Dark Blue background */
-          color: #3b82f6; /* Light Blue text */
-          border: none;
-          padding: 15px 30px;
-          font-size: 18px;
-          font-weight: bold;
-          border-radius: 30px;
-          box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
-          cursor: pointer;
-          transition: all 0.3s ease;
-          position: relative;
-          overflow: hidden;
-          z-index: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .custom-button-blue::before {
-          content: "";
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          width: 300%;
-          height: 300%;
-          background-color: #3b82f6; /* Light Blue */
-          transition: all 0.3s ease;
-          border-radius: 50%;
-          z-index: -1;
-          transform: translate(-50%, -50%) scale(0);
-        }
-
-        .custom-button-blue:hover::before {
-          transform: translate(-50%, -50%) scale(1);
-          opacity: 0.9;
-        }
-
-        .custom-button-blue:hover {
-          box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
-          transform: translateY(-5px);
-          color: #1e3a8a; /* Dark Blue text on hover */
-        }
-
-        .custom-button-blue:active::after {
-          content: "";
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          width: 100%;
-          height: 100%;
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 50%;
-          transform: translate(-50%, -50%) scale(0);
-          animation: ripple 0.6s ease-out;
-          z-index: -1;
-        }
-
-        @keyframes ripple {
-          to {
-            transform: translate(-50%, -50%) scale(4);
-            opacity: 0;
-          }
-        }
-
-        .custom-button-blue::after {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: -75%;
-          width: 50%;
-          height: 100%;
-          background: linear-gradient(
-            120deg,
-            rgba(255, 255, 255, 0) 0%,
-            rgba(255, 255, 255, 0.8) 50%,
-            rgba(255, 255, 255, 0) 100%
-          );
-          transform: skewX(-25deg);
-          transition: all 0.3s ease;
-        }
-
-        .custom-button-blue:hover::after {
-          left: 100%;
-          transition: all 0.5s ease;
-        }
-      `}</style>
-
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4 py-10">
-        <div className="w-full max-w-xl bg-white p-8 rounded-xl border shadow-sm">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Create New Research Paper
-            </h1>
-            <Link
-              href="/"
-              className="px-4 py-2 text-sm border rounded-lg text-gray-700 hover:bg-gray-100"
-            >
-              Dashboard
-            </Link>
-          </div>
-
-          <div className="border border-dashed border-gray-300 rounded-lg p-6 text-center">
-            <p className="text-lg font-semibold text-gray-900 mb-2">
-              ⬆ Upload Data to Generate Paper
-            </p>
-            <label className="block text-sm text-gray-700 mb-2">
-              Upload Data File
-            </label>
-
-            <input
-              type="file"
-              accept=".csv,.xlsx,.json"
-              onChange={handleFileChange}
-              className="hidden"
-              id="upload"
-            />
-
-            <label
-              htmlFor="upload"
-              className="border border-gray-300 rounded-md p-6 cursor-pointer hover:bg-gray-50 flex flex-col items-center"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-8 w-8 text-gray-500 mb-2"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4v12m0 0l-4-4m4 4l4-4M4 16v1a1 1 0 001 1h14a1 1 0 001-1v-1"
+        <div className="mt-12">
+          <div className="max-w-xl mx-auto">
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+              <div className="space-y-1 text-center cursor-pointer" onClick={() => document.getElementById('file-upload')?.click()}>
+                <svg
+                  className={`mx-auto h-12 w-12 text-gray-400 ${showBounce ? 'animate-bounce' : ''}`}
+                  stroke="currentColor"
+                  fill="none"
+                  viewBox="0 0 48 48"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <div className="flex text-sm text-gray-600 justify-center">
+                  <span className="font-medium text-indigo-600 hover:text-indigo-500">
+                    Upload files
+                  </span>
+                  <p className="pl-1">or drag and drop</p>
+                </div>
+                <p className="text-xs text-gray-500">
+                  CSV, XLSX, or JSON files up to 10MB
+                </p>
+                <input
+                  id="file-upload"
+                  name="file-upload"
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  onChange={handleFileChange}
+                  accept=".csv,.xlsx,.json"
                 />
-              </svg>
-              <p className="text-sm text-gray-700 font-medium">
-                Click to upload
-              </p>
-              <p className="text-gray-500">or drag and drop</p>
-              <p className="text-xs text-gray-500 mt-1">
-                CSV, XLSX, or JSON (max 10MB)
-              </p>
-            </label>
+              </div>
+            </div>
 
             {error && (
-              <p className="text-sm text-red-500 mt-4 font-medium">{error}</p>
+              <div className="mt-4 text-sm text-red-600">
+                {error}
+              </div>
             )}
 
-            {/* Upload Items List */}
             {uploadItems.length > 0 && (
               <div className="mt-6 space-y-4">
-                <h3 className="text-sm font-medium text-gray-700 text-left">Uploaded Files</h3>
                 {uploadItems.map((item) => (
-                  <div key={item.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center space-x-2 flex-1 min-w-0">
-                        <span className="text-sm font-medium text-gray-700 truncate">
+                  <div key={item.id} className="bg-white shadow rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
                           {item.file.name}
-                        </span>
-                        <span className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${
-                          item.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          item.status === 'failed' ? 'bg-red-100 text-red-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {getStatusText(item.status)}
-                        </span>
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
                       </div>
-                      <button
-                        onClick={() => handleRemoveFile(item.id)}
-                        className="ml-2 p-1 text-gray-400 hover:text-red-500 transition-colors"
-                        title="Remove file"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
+                      <div className="ml-4 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(item.id)}
+                          className="text-gray-400 hover:text-gray-500"
+                        >
+                          <span className="sr-only">Remove</span>
+                          <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${getStatusColor(item.status)} transition-all duration-500`}
-                        style={{ width: `${item.progress}%` }}
-                      />
+                    <div className="mt-2">
+                      <div className="relative pt-1">
+                        <div className="flex mb-2 items-center justify-between">
+                          <div>
+                            <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-500 bg-blue-100">
+                              {getStatusText(item.status)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-semibold inline-block text-blue-500">
+                              {item.progress}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-blue-100">
+                          <div
+                            style={{ width: `${item.progress}%` }}
+                            className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${getStatusColor(item.status)} transition-all duration-500`}
+                          />
+                        </div>
+                      </div>
                     </div>
                     {item.error && (
-                      <p className="text-xs text-red-500 mt-1">{item.error}</p>
+                      <p className="mt-2 text-sm text-red-600">
+                        {item.error}
+                      </p>
                     )}
                   </div>
                 ))}
+              </div>
+            )}
 
-                {/* Generate Hypotheses Button */}
-                {areAllUploadsComplete && (
-                  <button
-                    onClick={handleGenerateHypotheses}
-                    className="mt-4 w-full bg-green-500 text-white py-3 rounded-md hover:bg-green-600 transition-colors font-medium flex items-center justify-center space-x-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
-                    </svg>
-                    <span>Generate Hypotheses</span>
-                  </button>
-                )}
-
-                {hasFailedUploads && (
-                  <p className="text-sm text-red-500 mt-2">
-                    Please remove failed uploads before proceeding
-                  </p>
-                )}
+            {uploadItems.length > 0 && (
+              <div className="mt-6">
+                <button
+                  onClick={handleGenerateHypotheses}
+                  disabled={uploadItems.some(item => item.status === 'uploading')}
+                  className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                    uploadItems.some(item => item.status === 'uploading')
+                      ? 'bg-blue-300 cursor-not-allowed'
+                      : 'bg-blue-400 hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400'
+                  }`}
+                >
+                  Generate Hypotheses
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
