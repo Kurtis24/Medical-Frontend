@@ -1,5 +1,12 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+
+npm install @supabase/supabase-js
+
+npm install uuid
+
 ## Getting Started
 
 First, run the development server:
