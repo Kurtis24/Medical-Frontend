@@ -41,9 +41,8 @@ export default function Home() {
       <Navbar />
 
       <div className="flex items-center justify-between mt-6 mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Projects</h2>
+        <h2 className="text-xl font-bold text-gray-900"></h2>
         <div className="text-sm text-gray-700 flex items-center gap-2">
-          Sort By
         </div>
       </div>
 

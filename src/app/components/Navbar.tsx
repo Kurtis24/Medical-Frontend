@@ -47,21 +47,22 @@ const Navbar = () => {
 
           return (
             <Link
-              key={item.href}
-              href={item.href}
-              className={`relative pb-1 transition-all duration-200 ${
-                isActive ? "text-black" : "text-gray-700"
-              } group`}
-            >
-              {item.name}
-              <span
-                className={`absolute left-0 -bottom-[2px] h-[2px] w-full transition-all duration-300 ${
-                  isActive
-                    ? "bg-black scale-x-100"
-                    : "bg-black scale-x-0 group-hover:scale-x-100"
-                } origin-left`}
-              />
-            </Link>
+          key={item.href}
+          href={item.href}
+          className={`relative pb-1 transition-all duration-200 group ${
+            isActive ? "text-sky-600 font-bold" : "text-gray-700"
+          } hover:text-sky-600`}
+        >
+          {item.name}
+          <span
+            className={`absolute left-0 -bottom-[2px] h-[2px] w-full transition-all duration-300 ${
+              isActive
+                ? "bg-sky-600 scale-x-100"
+                : "bg-sky-600 scale-x-0 group-hover:scale-x-100"
+            } origin-left`}
+          />
+        </Link>
+
           );
         })}
 
