@@ -307,7 +307,7 @@ export default function NewProjectUploadPage() {
               </p>
               <p className="text-gray-500">or drag and drop</p>
               <p className="text-xs text-gray-500 mt-1">
-                CSV, XLSX, or JSON (max 10MB)
+                CSV, , or JSON (max 10MB)
               </p>
             </label>
 

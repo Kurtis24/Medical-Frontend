@@ -20,5 +20,6 @@ export default function UserIdLogger() {
     logUserId();
   }, []);
 
-  return null; // This component doesn't render anything
+  // This component doesn't render anything
+  return null;
 } 
