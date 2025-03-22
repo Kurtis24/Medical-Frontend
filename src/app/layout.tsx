@@ -4,6 +4,7 @@ import "./globals.css";
 import { headers, cookies } from 'next/headers';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import AuthProvider from './components/AuthProvider';
+import UserIdLogger from './components/UserIdLogger';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,7 +37,10 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <UserIdLogger />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
