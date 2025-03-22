@@ -4,7 +4,17 @@ import Navbar from "./components/Navbar";
 import NewProjectButton from "./components/NewProjectButton";
 import ProjectCard from "./components/ProjectCard";
 import { v4 as uuidv4 } from "uuid";
+import Threads from './components/Threads';
 
+<div style={{ width: '100%', height: '600px', position: 'relative' }}>
+  <Threads
+    color={[177, 249, 252]}
+
+    amplitude={4}
+    distance={0}
+    enableMouseInteraction={false}
+  />
+</div>
 const gradients = [
   { id: "gradient1", from: "#a855f7", to: "#ec4899" },
   { id: "gradient2", from: "#4ade80", to: "#d1d5db" },

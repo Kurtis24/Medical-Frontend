@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { use, useState } from "react";
 import Navbar from "../../components/Navbar";
 import ChatPanel from "../../components/ChatPanel";
 import ResearchPaperPanel from "../../components/ResearchPaperPanel";
+import DownloadButton from "../../components/download"; // ✅ Import the download button
 
-export default function ProjectPage({ params }: { params: { id: string } }) {
-  const projectId = params.id;
+export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = use(params); // ✅ Unwrap params safely
   const [fileUploaded, setFileUploaded] = useState(true);
 
   return (
@@ -21,8 +22,17 @@ export default function ProjectPage({ params }: { params: { id: string } }) {
         </aside>
 
         {/* Main Research Output */}
-        <main className="flex-1 p-6 overflow-auto">
-          <ResearchPaperPanel projectId={projectId} />
+        <main className="flex-1 p-6 overflow-auto relative">
+          {/* ✅ Container for positioning */}
+          <div className="relative">
+            {/* 🔵 Download Button positioned top right */}
+            <div className="absolute top-0 right-0 m-2">
+              <DownloadButton fileUrl="/path-to-your-document.pdf" fileName="document.pdf" />
+            </div>
+
+            {/* Research Paper Panel */}
+            <ResearchPaperPanel projectId={projectId} />
+          </div>
         </main>
       </div>
     </div>
