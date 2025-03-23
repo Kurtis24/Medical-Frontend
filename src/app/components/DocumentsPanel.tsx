@@ -79,8 +79,8 @@ export default function DocumentsPanel({ projectId }: { projectId: string }) {
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
       <style jsx>{`
         .custom-button-blue {
-          background-color: #1e3a8a; /* Dark Blue background */
-          color: #3b82f6; /* Light Blue text */
+          background-color: #3b82f6; /* Light Blue background */
+          color: white; /* White text */
           border: none;
           padding: 15px 30px;
           font-size: 18px;
@@ -104,7 +104,7 @@ export default function DocumentsPanel({ projectId }: { projectId: string }) {
           left: 50%;
           width: 300%;
           height: 300%;
-          background-color: #3b82f6; /* Light Blue */
+          background-color: #2563eb; /* Slightly darker blue for hover */
           transition: all 0.3s ease;
           border-radius: 50%;
           z-index: -1;
@@ -119,7 +119,7 @@ export default function DocumentsPanel({ projectId }: { projectId: string }) {
         .custom-button-blue:hover {
           box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
           transform: translateY(-5px);
-          color: #1e3a8a; /* Dark Blue text on hover */
+          color: white; /* Keep text white on hover */
         }
 
         .custom-button-blue:active::after {

@@ -25,22 +25,29 @@ export default function AuthProvider({
 }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // Only run once when component mounts
+    if (initialized) return;
 
-    // Listen for changes on auth state (logged in, signed out, etc.)
+    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+      setInitialized(true);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []); // Empty dependency array - only run once
 
   return (
     <AuthContext.Provider value={{ user, loading }}>

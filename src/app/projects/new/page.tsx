@@ -2,6 +2,9 @@
 import Link from "next/link";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { uploadFile as chatbotUploadFile } from "../../api/chatbotService";
+import type { FileUploadResponse } from "../../api/chatbotService";
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 type UploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
 
@@ -19,6 +22,27 @@ export default function NewProjectUploadPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const activeUploads = useRef<{ [key: string]: boolean }>({});
+
+  const handleFileUpload = async (item: UploadItem) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', item.file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
+  };
 
   const uploadFile = async (item: UploadItem) => {
     try {
@@ -118,46 +142,97 @@ export default function NewProjectUploadPage() {
 
   const handleGenerateHypotheses = async () => {
     try {
-      // Create FormData with all files
-      const formData = new FormData();
-      uploadItems.forEach(item => {
-        formData.append('files', item.file);
-      });
+      // Get the current session from Supabase
+      const supabase = createClientComponentClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+
+      // Generate a paper ID
+      const paperId = Math.random().toString(36).substr(2, 9);
 
       // Update all items to uploading status
       setUploadItems(current => 
         current.map(item => ({
           ...item,
-          status: 'uploading',
+          status: 'uploading' as UploadStatus,
           progress: 0
         }))
       );
 
-      const response = await fetch('/api/generate-hypotheses', {
-        method: 'POST',
-        body: formData
+      // Upload each file using the API
+      const uploadPromises = uploadItems.map(async (item) => {
+        try {
+          const formData = new FormData();
+          formData.append('file', item.file);
+          formData.append('user_id', userId);
+          formData.append('paper_id', paperId);
+
+          const response = await fetch('http://100.66.19.207:8080/upload_file', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          
+          // Log the response data to console
+          console.error('File upload response:', {
+            file: item.file.name,
+            response: data
+          });
+          
+          return {
+            id: item.id,
+            status: 'completed' as UploadStatus,
+            progress: 100,
+            file_id: data.file_id
+          };
+        } catch (error) {
+          console.error('Error uploading file:', error);
+          return {
+            id: item.id,
+            status: 'failed' as UploadStatus,
+            error: error instanceof Error ? error.message : 'Upload failed'
+          };
+        }
       });
 
-      const data = await response.json();
+      const results = await Promise.all(uploadPromises);
 
-      if (!response.ok) {
-        throw new Error(data.error || data.details || 'Failed to generate hypotheses');
+      // Log all results to console
+      console.error('All upload results:', results);
+
+      // Update the status of each item
+      setUploadItems(current => 
+        current.map(item => {
+          const result = results.find(r => r.id === item.id);
+          return result ? { ...item, ...result } : item;
+        })
+      );
+
+      // Check if any uploads failed
+      const hasFailures = results.some(r => r.status === 'failed');
+      if (hasFailures) {
+        throw new Error('Some files failed to upload');
       }
-      
-      // Store the hypotheses in localStorage for the project page to access
-      localStorage.setItem('generatedHypotheses', JSON.stringify(data.hypotheses));
-      
-      // Generate a new project ID and navigate to the project page
-      const projectId = Math.random().toString(36).substr(2, 9);
-      router.push(`/projects/${projectId}`);
+
+      // Navigate to the project page with the paper ID
+      router.push(`/projects/${paperId}`);
     } catch (error) {
-      console.error('Error generating hypotheses:', error);
-      setError(error instanceof Error ? error.message : 'Failed to generate hypotheses');
+      console.error('Error uploading files:', error);
+      setError(error instanceof Error ? error.message : 'Failed to upload files');
       // Update all items to failed status
       setUploadItems(current => 
         current.map(item => ({
           ...item,
-          status: 'failed',
+          status: 'failed' as UploadStatus,
           error: error instanceof Error ? error.message : 'Upload failed'
         }))
       );
@@ -199,6 +274,7 @@ export default function NewProjectUploadPage() {
           </p>
         </div>
 
+        <div className="mt-8">
           <div className="border border-dashed border-gray-300 rounded-lg p-6 text-center">
             <p className="text-lg font-semibold text-gray-900 mb-2">
               ⬆ Upload Data to Generate Paper
@@ -247,81 +323,80 @@ export default function NewProjectUploadPage() {
                 {error}
               </div>
             )}
+          </div>
 
-            {uploadItems.length > 0 && (
-              <div className="mt-6 space-y-4">
-                {uploadItems.map((item) => (
-                  <div key={item.id} className="bg-white shadow rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {item.file.name}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {(item.file.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
-                      </div>
-                      <div className="ml-4 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveFile(item.id)}
-                          className="text-gray-400 hover:text-gray-500"
-                        >
-                          <span className="sr-only">Remove</span>
-                          <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
+          {uploadItems.length > 0 && (
+            <div className="mt-8 space-y-4">
+              {uploadItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white p-4 rounded-lg shadow-sm border border-gray-200"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {item.file.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
                     </div>
-                    <div className="mt-2">
-                      <div className="relative pt-1">
-                        <div className="flex mb-2 items-center justify-between">
-                          <div>
-                            <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-500 bg-blue-100">
-                              {getStatusText(item.status)}
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-xs font-semibold inline-block text-blue-500">
-                              {item.progress}%
-                            </span>
-                          </div>
-                        </div>
-                        <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-blue-100">
+                    <div className="flex items-center space-x-4">
+                      <div className="flex-1 w-32">
+                        <div className="h-2 bg-gray-200 rounded-full">
                           <div
+                            className={`h-2 rounded-full ${getStatusColor(item.status)} transition-all duration-300`}
                             style={{ width: `${item.progress}%` }}
-                            className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${getStatusColor(item.status)} transition-all duration-500`}
                           />
                         </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {getStatusText(item.status)}
+                        </p>
                       </div>
+                      <button
+                        onClick={() => handleRemoveFile(item.id)}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </button>
                     </div>
-                    {item.error && (
-                      <p className="mt-2 text-sm text-red-600">
-                        {item.error}
-                      </p>
-                    )}
                   </div>
-                ))}
-              </div>
-            )}
+                  {item.error && (
+                    <p className="mt-2 text-sm text-red-600">
+                      {item.error}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-            {uploadItems.length > 0 && (
-              <div className="mt-6">
-                <button
-                  onClick={handleGenerateHypotheses}
-                  disabled={uploadItems.some(item => item.status === 'uploading')}
-                  className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                    uploadItems.some(item => item.status === 'uploading')
-                      ? 'bg-blue-300 cursor-not-allowed'
-                      : 'bg-blue-400 hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400'
-                  }`}
-                >
-                  Generate Hypotheses
-                </button>
-              </div>
-            )}
-          </div>
+          {uploadItems.length > 0 && (
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={handleGenerateHypotheses}
+                disabled={hasFailedUploads || !areAllUploadsComplete}
+                className={`px-6 py-3 rounded-md text-white font-medium
+                  ${hasFailedUploads || !areAllUploadsComplete
+                    ? 'bg-blue-300 cursor-not-allowed'
+                    : 'bg-blue-400 hover:bg-blue-500'
+                  } transition-colors duration-200`}
+              >
+                Generate Hypotheses
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

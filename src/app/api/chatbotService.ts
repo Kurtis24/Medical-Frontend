@@ -1,10 +1,10 @@
-interface ChatInitiateResponse {
+export interface ChatInitiateResponse {
     message: string;
     user_id: string;
     paper_id: string;
 }
 
-interface FileUploadResponse {
+export interface FileUploadResponse {
     message: string;
     file_id: string;
     filename: string;
@@ -12,7 +12,7 @@ interface FileUploadResponse {
     paper_id: string;
 }
 
-interface ChatResponse {
+export interface ChatResponse {
     response: string;
     project_id: string;
 }

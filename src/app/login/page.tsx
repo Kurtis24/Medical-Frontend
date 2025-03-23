@@ -37,24 +37,6 @@ export default function LoginPage() {
     return `CLT-${timestamp}-${randomStr}`.toUpperCase();
   };
 
-  const checkExistingUser = async (email: string) => {
-    try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email,
-        password: 'dummy-password', // This will fail but tell us if the user exists
-      });
-
-      // If we get a specific error, the user exists but password is wrong
-      if (error?.message.includes('Invalid login credentials')) {
-        return true;
-      }
-      // If we get a different error, the user doesn't exist
-      return false;
-    } catch (error) {
-      return false;
-    }
-  };
-
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -62,15 +44,6 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        // Check if user already exists
-        const userExists = await checkExistingUser(email);
-        if (userExists) {
-          setError('Email already in use');
-          setIsSignUp(false);
-          setLoading(false);
-          return;
-        }
-
         // Validate password confirmation for sign up
         if (password !== confirmPassword) {
           setError('Passwords do not match');
@@ -79,7 +52,7 @@ export default function LoginPage() {
         }
 
         const clientId = generateClientId();
-        const { data, error } = await supabaseClient.auth.signUp({
+        const { error } = await supabaseClient.auth.signUp({
           email,
           password,
           options: {
@@ -89,40 +62,42 @@ export default function LoginPage() {
             }
           },
         });
-        if (error) throw error;
+
+        if (error) {
+          if (error.message.includes('User already registered')) {
+            setError('Email already in use. Please sign in instead.');
+            setIsSignUp(false);
+          } else {
+            throw error;
+          }
+          return;
+        }
+
         // Show success message for sign up
         setError('Check your email for the confirmation link!');
         return;
-      } else {
-        console.log('Attempting sign in...');
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-          email,
-          password,
-        });
-        
-        if (error) {
-          console.error('Sign in error:', error);
-          throw error;
-        }
-
-        console.log('Sign in successful, data:', data);
-        
-        // Get the session after sign in
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        console.log('Session after sign in:', session);
-        
-        if (session) {
-          console.log('Session exists, navigating to home...');
-          // Force a hard refresh to ensure session is properly set
-          window.location.href = '/';
-        } else {
-          console.error('No session after sign in');
-          setError('Failed to establish session. Please try again.');
-        }
       }
+
+      // Handle sign in
+      const { error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        throw error;
+      }
+
+      // Instead of making another API call, use the auth state change listener
+      // that's already set up in AuthProvider
+      router.push('/');
     } catch (error: any) {
       console.error('Auth error:', error);
-      setError(error.message);
+      if (error.message.includes('Rate limit')) {
+        setError('Too many attempts. Please wait a few minutes before trying again.');
+      } else {
+        setError(error.message);
+      }
     } finally {
       setLoading(false);
     }

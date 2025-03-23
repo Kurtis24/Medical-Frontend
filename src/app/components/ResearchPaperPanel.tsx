@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import { MathJax } from 'react-mathjax';
+import '../styles/latex.css';
 
 interface Props {
   projectId: string;
@@ -9,6 +11,11 @@ interface Props {
   setExpandedCard: (id: number | null) => void;
   selectedCard: number | null;
   setSelectedCard: (id: number | null) => void;
+}
+
+interface Hypothesis {
+  title: string;
+  description: string;
 }
 
 export default function ResearchPaperPanel({ 
@@ -22,56 +29,105 @@ export default function ResearchPaperPanel({
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [paper, setPaper] = useState("");
+  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchPaper = async () => {
+    // Load hypotheses from localStorage
+    const storedHypotheses = localStorage.getItem('generatedHypotheses');
+    if (storedHypotheses) {
+      setHypotheses(JSON.parse(storedHypotheses));
+    }
+  }, []);
+
+  useEffect(() => {
+    const generateResearchPaper = async () => {
       if (selectedCard !== null && view === "research") {
         setLoading(true);
+        setError(null);
         try {
-          const res = await fetch(`/api/research?projectId=${projectId}&selectionId=${selectedCard}`);
-          const data = await res.json();
-          setPaper(`In-depth analysis for Selection #${selectedCard}:
-\n${data.paper}`);
+          // Get the selected hypothesis
+          const selectedHypothesis = hypotheses[selectedCard - 1];
+          
+          // Generate research paper
+          const response = await fetch('/api/generate-research-paper', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ hypothesis: selectedHypothesis }),
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to generate research paper');
+          }
+
+          const data = await response.json();
+          setPaper(data.latex);
         } catch (error) {
-          setPaper(`Failed to load research for Selection #${selectedCard}.`);
+          console.error('Error generating research paper:', error);
+          setError(error instanceof Error ? error.message : 'Failed to generate research paper');
         } finally {
           setLoading(false);
         }
       }
     };
 
-    fetchPaper();
-  }, [projectId, selectedCard, view]);
+    generateResearchPaper();
+  }, [projectId, selectedCard, view, hypotheses]);
 
   const renderContent = () => {
     if (view === "research") {
-      return loading ? (
-        <p className="text-gray-800">Loading research paper...</p>
-      ) : selectedCard !== null ? (
-        <div className="border p-4 rounded-lg text-gray-800 text-sm whitespace-pre-wrap">
-          {paper}
-        </div>
-      ) : (
-        <p className="text-gray-500 italic">Please select an option from the Selections tab first.</p>
+      if (loading) {
+        return (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          </div>
+        );
+      }
+
+      if (error) {
+        return (
+          <div className="text-red-600 p-4 bg-red-50 rounded-lg">
+            {error}
+          </div>
+        );
+      }
+
+      if (selectedCard !== null) {
+        return (
+          <div className="bg-white p-6 rounded-lg shadow-lg">
+            <div className="prose max-w-none">
+              <MathJax.Provider options={{
+                tex2jax: {
+                  inlineMath: [['$', '$']],
+                  displayMath: [['$$', '$$']]
+                }
+              }}>
+                <div className="latex-content" dangerouslySetInnerHTML={{ __html: paper }} />
+              </MathJax.Provider>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <p className="text-gray-500 italic">Please select a hypothesis from the Selections tab first.</p>
       );
     }
 
     if (view === "selection") {
-      const sampleCards = Array.from({ length: 6 }, (_, i) => ({
-        id: i + 1,
-        title: `Option ${i + 1}`,
-        body: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-      }));
-
       return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-          {sampleCards.map((card) => {
-            const isExpanded = expandedCard === card.id;
-            const isSelected = selectedCard === card.id;
+          {hypotheses.map((hypothesis, index) => {
+            const cardId = index + 1;
+            const isExpanded = expandedCard === cardId;
+            const isSelected = selectedCard === cardId;
             return (
               <div
-                key={card.id}
-                onClick={() => setSelectedCard(card.id)}
+                key={cardId}
+                onClick={() => setSelectedCard(cardId)}
                 className={`relative border transition-all duration-700 ease-in-out cursor-pointer
                   ${isExpanded ? "col-span-3 min-w-full min-h-[300px]" : "min-w-0 min-h-[160px]"}
                   ${isSelected 
@@ -79,14 +135,14 @@ export default function ResearchPaperPanel({
                     : "bg-white border-gray-300 hover:scale-[1.03] hover:shadow-md"}
                   p-4 rounded-lg shadow-md`}                
               >
-                <div className="text-xl font-bold text-gray-800 mb-1">#{card.id}</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">{card.title}</h3>
-                <p className="text-gray-700 text-sm leading-relaxed">{card.body}</p>
+                <div className="text-xl font-bold text-gray-800 mb-1">#{cardId}</div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{hypothesis.title}</h3>
+                <p className="text-gray-700 text-sm leading-relaxed">{hypothesis.description}</p>
 
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setExpandedCard(isExpanded ? null : card.id);
+                    setExpandedCard(isExpanded ? null : cardId);
                   }}
                   className="absolute bottom-2 right-2"
                 >
@@ -119,93 +175,92 @@ export default function ResearchPaperPanel({
           <button className="custom-button-blue">Download</button>
           <style jsx>{`
             .custom-button-blue {
-  background-color: #1e3a8a; /* Dark Blue background */
-  color: #3b82f6; /* Light Blue text */
-  border: none;
-  padding: 15px 30px;
-  font-size: 18px;
-  font-weight: bold;
-  border-radius: 30px;
-  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-  z-index: 1;
-}
+              background-color: #1e3a8a; /* Dark Blue background */
+              color: #3b82f6; /* Light Blue text */
+              border: none;
+              padding: 15px 30px;
+              font-size: 18px;
+              font-weight: bold;
+              border-radius: 30px;
+              box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+              cursor: pointer;
+              transition: all 0.3s ease;
+              position: relative;
+              overflow: hidden;
+              z-index: 1;
+            }
 
-.custom-button-blue::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 300%;
-  height: 300%;
-  background-color: #3b82f6; /* Light Blue */
-  transition: all 0.3s ease;
-  border-radius: 50%;
-  z-index: -1;
-  transform: translate(-50%, -50%) scale(0);
-}
+            .custom-button-blue::before {
+              content: "";
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              width: 300%;
+              height: 300%;
+              background-color: #3b82f6; /* Light Blue */
+              transition: all 0.3s ease;
+              border-radius: 50%;
+              z-index: -1;
+              transform: translate(-50%, -50%) scale(0);
+            }
 
-.custom-button-blue:hover::before {
-  transform: translate(-50%, -50%) scale(1);
-  opacity: 0.9;
-}
+            .custom-button-blue:hover::before {
+              transform: translate(-50%, -50%) scale(1);
+              opacity: 0.9;
+            }
 
-.custom-button-blue:hover {
-  box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
-  transform: translateY(-5px);
-  color: #1e3a8a; /* Dark Blue text on hover */
-}
+            .custom-button-blue:hover {
+              box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
+              transform: translateY(-5px);
+              color: #1e3a8a; /* Dark Blue text on hover */
+            }
 
-.custom-button-blue:active::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 100%;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  transform: translate(-50%, -50%) scale(0);
-  animation: ripple 0.6s ease-out;
-  z-index: -1;
-}
+            .custom-button-blue:active::after {
+              content: "";
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              width: 100%;
+              height: 100%;
+              background: rgba(255, 255, 255, 0.2);
+              border-radius: 50%;
+              transform: translate(-50%, -50%) scale(0);
+              animation: ripple 0.6s ease-out;
+              z-index: -1;
+            }
 
-@keyframes ripple {
-  to {
-    transform: translate(-50%, -50%) scale(4);
-    opacity: 0;
-  }
-}
+            @keyframes ripple {
+              to {
+                transform: translate(-50%, -50%) scale(4);
+                opacity: 0;
+              }
+            }
 
-.custom-button-blue::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -75%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(
-    120deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.8) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  transform: skewX(-25deg);
-  transition: all 0.3s ease;
-}
+            .custom-button-blue::after {
+              content: "";
+              position: absolute;
+              top: 0;
+              left: -75%;
+              width: 50%;
+              height: 100%;
+              background: linear-gradient(
+                120deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.8) 50%,
+                rgba(255, 255, 255, 0) 100%
+              );
+              transform: skewX(-25deg);
+              transition: all 0.3s ease;
+            }
 
-.custom-button-blue:hover::after {
-  left: 100%;
-  transition: all 0.5s ease;
-  }
+            .custom-button-blue:hover::after {
+              left: 100%;
+              transition: all 0.5s ease;
+            }
           `}</style>
         </div>
       );
     }
-    
   };
 
   return (
