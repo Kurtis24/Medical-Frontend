@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { uploadFile, sendMessage } from "../../api/chatbotService";
+import { uploadFile, sendMessage, initiateChat } from "../../api/chatbotService";
 import type { FileUploadResponse, ChatResponse } from "../../api/chatbotService";
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
@@ -65,20 +65,27 @@ export default function NewProjectUploadPage() {
   };
 
   const handleGenerateHypotheses = async () => {
+    if (!uploadItems.length) return;
+
     try {
-      // Get the current session from Supabase
+      // Get current user session
       const supabase = createClientComponentClient();
       const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id;
-
-      if (!userId) {
+      if (!session?.user?.id) {
         throw new Error("User not authenticated");
       }
 
-      // Generate a paper ID
-      const paperId = Math.random().toString(36).substr(2, 9);
+      // Initialize chat first to get paper_id
+      const chatResponse = await initiateChat(session.user.id);
+      console.error('Chat initiation response:', chatResponse); // Log the response
 
-      // Update all items to uploading status
+      // Parse the response to get paper_id
+      const paperId = chatResponse.paper_id;
+      if (!paperId) {
+        throw new Error('No paper_id received from chat initiation');
+      }
+
+      // Update upload statuses
       setUploadItems(current => 
         current.map(item => ({
           ...item,
@@ -87,59 +94,45 @@ export default function NewProjectUploadPage() {
         }))
       );
 
-      // Upload each file using the chatbot service
-      const uploadPromises = uploadItems.map(async (item) => {
-        try {
-          const response: FileUploadResponse = await uploadFile(item.file, userId, paperId);
-          
-          // Log the response data to console
-          console.error('File upload response:', {
-            file: item.file.name,
-            response: response
-          });
-          
-          return {
-            id: item.id,
-            status: 'completed' as UploadStatus,
-            progress: 100,
-            file_id: response.file_id
-          };
-        } catch (error) {
-          console.error('Error uploading file:', error);
-          return {
-            id: item.id,
-            status: 'failed' as UploadStatus,
-            error: error instanceof Error ? error.message : 'Upload failed'
-          };
-        }
-      });
-
-      const results = await Promise.all(uploadPromises);
-
-      // Log all results to console
-      console.error('All upload results:', results);
-
-      // Update the status of each item
-      setUploadItems(current => 
-        current.map(item => {
-          const result = results.find(r => r.id === item.id);
-          return result ? { ...item, ...result } : item;
+      // Upload files and get responses using the paper_id from chat initiation
+      const uploadResults = await Promise.all(
+        uploadItems.map(async (item) => {
+          try {
+            const response = await uploadFile(item.file, session.user.id, paperId);
+            console.error('File upload response:', response); // Log the response
+            return {
+              id: item.id,
+              status: 'completed' as UploadStatus,
+              progress: 100,
+              file_id: response.file_id
+            };
+          } catch (error) {
+            console.error(`Error uploading ${item.file.name}:`, error);
+            return {
+              id: item.id,
+              status: 'failed' as UploadStatus,
+              error: error instanceof Error ? error.message : 'Upload failed'
+            };
+          }
         })
       );
 
-      // Check if any uploads failed
-      const hasFailures = results.some(r => r.status === 'failed');
-      if (hasFailures) {
+      // Log all upload results
+      console.error('All upload results:', uploadResults);
+
+      // Check if all uploads were successful
+      const allSuccessful = uploadResults.every(result => result.status === 'completed');
+      if (!allSuccessful) {
         throw new Error('Some files failed to upload');
       }
 
       // Send "begin" message to start the process
       console.error('Sending begin message...');
-      const chatResponse: ChatResponse = await sendMessage(userId, "begin", paperId);
-      console.error('Chat response:', chatResponse);
+      const beginResponse: ChatResponse = await sendMessage(session.user.id, "begin", paperId);
+      console.error('Begin message response:', beginResponse);
 
-      // Parse the response text to extract headers and body
-      const responseText = chatResponse.response;
+      // Parse the response text to extract headers and descriptions
+      const responseText = beginResponse.response;
       
       // Split the response into sections based on headers
       const sections = responseText.split(/(?=#|##|###)/);
@@ -159,19 +152,29 @@ export default function NewProjectUploadPage() {
       // Store the processed content in localStorage for the project page
       localStorage.setItem('processedContent', JSON.stringify(processedContent));
 
-      // Navigate to the project page with the paper ID
+      // Store the paper ID for future use
+      localStorage.setItem('currentPaperId', paperId);
+
+      // Update statuses to completed
+      setUploadItems(current => 
+        current.map(item => {
+          const result = uploadResults.find(r => r.id === item.id);
+          return result ? { ...item, ...result } : item;
+        })
+      );
+
+      // Navigate to the project page
       router.push(`/projects/${paperId}`);
     } catch (error) {
-      console.error('Error in process:', error);
-      setError(error instanceof Error ? error.message : 'Failed to process files');
-      // Update all items to failed status
+      console.error('Error in handleGenerateHypotheses:', error);
       setUploadItems(current => 
         current.map(item => ({
           ...item,
           status: 'failed' as UploadStatus,
-          error: error instanceof Error ? error.message : 'Upload failed'
+          error: error instanceof Error ? error.message : 'Failed to process files'
         }))
       );
+      setError('Failed to process files. Please try again.');
     }
   };
 

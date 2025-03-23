@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { sendMessage, initiateChat } from "../../api/chatbotService";
-import type { ChatResponse } from "../../api/chatbotService";
+import { sendMessage, initiateChat } from "../api/chatbotService";
+import type { ChatResponse } from "../api/chatbotService";
+import ReactMarkdown from 'react-markdown';
 
 type Props = {
   projectId: string;
@@ -92,7 +93,7 @@ export default function ChatPanel({ projectId }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100vh-200px)]">
       <h2 className="text-lg font-semibold mb-4 text-gray-700">Research Paper</h2>
       <div className="bg-gray-800 rounded-lg p-4 mb-4 text-sm text-white">
         Upload a data file or ask me to help with your research paper.
@@ -104,7 +105,7 @@ export default function ChatPanel({ projectId }: Props) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+      <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-2">
         {messages.map((msg, i) => (
           <div
             key={i}
@@ -117,7 +118,61 @@ export default function ChatPanel({ projectId }: Props) {
                   : 'bg-gray-100 text-gray-800'
               }`}
             >
-              <p className="text-sm">{msg.content}</p>
+              <div className="prose prose-sm max-w-none">
+                <ReactMarkdown
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      return (
+                        <code
+                          className={`${className} ${
+                            inline ? 'bg-gray-200 rounded px-1' : 'block bg-gray-100 p-2 rounded'
+                          }`}
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                    pre({ node, children, ...props }) {
+                      return (
+                        <pre className="bg-gray-100 p-2 rounded overflow-x-auto" {...props}>
+                          {children}
+                        </pre>
+                      );
+                    },
+                    p({ children }) {
+                      return <p className="text-sm mb-2">{children}</p>;
+                    },
+                    ul({ children }) {
+                      return <ul className="list-disc list-inside text-sm mb-2">{children}</ul>;
+                    },
+                    ol({ children }) {
+                      return <ol className="list-decimal list-inside text-sm mb-2">{children}</ol>;
+                    },
+                    li({ children }) {
+                      return <li className="text-sm mb-1">{children}</li>;
+                    },
+                    h1({ children }) {
+                      return <h1 className="text-lg font-bold mb-2">{children}</h1>;
+                    },
+                    h2({ children }) {
+                      return <h2 className="text-md font-bold mb-2">{children}</h2>;
+                    },
+                    h3({ children }) {
+                      return <h3 className="text-sm font-bold mb-2">{children}</h3>;
+                    },
+                    blockquote({ children }) {
+                      return (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      );
+                    },
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+              </div>
               <p className="text-xs mt-1 opacity-70">
                 {msg.timestamp.toLocaleTimeString()}
               </p>
@@ -126,7 +181,7 @@ export default function ChatPanel({ projectId }: Props) {
         ))}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 mt-auto">
         <input
           className="flex-1 border rounded-md px-2 py-1 text-sm"
           placeholder="Type your message..."

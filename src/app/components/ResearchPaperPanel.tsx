@@ -21,7 +21,7 @@ interface Hypothesis {
 
 const ProgressBar = () => {
   const [progress, setProgress] = useState(0);
-  const progressRef = useRef<NodeJS.Timeout>();
+  const progressRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Start with a fast progress up to 90%
@@ -89,9 +89,20 @@ export default function ResearchPaperPanel({
 
   useEffect(() => {
     // Load hypotheses from localStorage
-    const storedHypotheses = localStorage.getItem('generatedHypotheses');
-    if (storedHypotheses) {
-      setHypotheses(JSON.parse(storedHypotheses));
+    const storedContent = localStorage.getItem('processedContent');
+    if (storedContent) {
+      try {
+        const parsedContent = JSON.parse(storedContent);
+        // Convert the processed content into hypotheses format
+        const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
+          title: section.header,
+          description: section.content
+        }));
+        setHypotheses(formattedHypotheses);
+      } catch (error) {
+        console.error('Error parsing stored content:', error);
+        setError('Failed to load hypotheses');
+      }
     }
   }, []);
 
@@ -235,8 +246,8 @@ Please help me generate a research paper based on this hypothesis.`;
           <button className="custom-button-blue">Download</button>
           <style jsx>{`
             .custom-button-blue {
-              background-color: #1e3a8a; /* Dark Blue background */
-              color: #3b82f6; /* Light Blue text */
+              background-color: #1e3a8a;
+              color: #3b82f6;
               border: none;
               padding: 15px 30px;
               font-size: 18px;
@@ -257,7 +268,7 @@ Please help me generate a research paper based on this hypothesis.`;
               left: 50%;
               width: 300%;
               height: 300%;
-              background-color: #3b82f6; /* Light Blue */
+              background-color: #3b82f6;
               transition: all 0.3s ease;
               border-radius: 50%;
               z-index: -1;
@@ -272,7 +283,7 @@ Please help me generate a research paper based on this hypothesis.`;
             .custom-button-blue:hover {
               box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
               transform: translateY(-5px);
-              color: #1e3a8a; /* Dark Blue text on hover */
+              color: #1e3a8a;
             }
 
             .custom-button-blue:active::after {
