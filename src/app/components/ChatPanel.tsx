@@ -232,21 +232,22 @@ export default function ChatPanel({ projectId }: Props) {
         ))}
       </div>
 
-      <div className="flex flex-col gap-2 mt-auto">
-        <div className="flex gap-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
           <input
-            className="flex-1 border rounded-md px-2 py-1 text-sm"
-            placeholder="Type your message..."
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            placeholder="Type your message..."
+            className="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isLoading}
           />
           <button
             onClick={handleSendMessage}
-            disabled={isLoading}
+            disabled={isLoading || !input.trim()}
             className={`px-4 py-1 rounded-md ${
-              isLoading
+              isLoading || !input.trim()
                 ? 'bg-gray-300 cursor-not-allowed'
                 : 'bg-blue-500 hover:bg-blue-600 text-white'
             }`}
@@ -254,7 +255,7 @@ export default function ChatPanel({ projectId }: Props) {
             {isLoading ? '...' : '➤'}
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           <input
             type="file"
             ref={fileInputRef}
@@ -265,7 +266,7 @@ export default function ChatPanel({ projectId }: Props) {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
-            className={`px-4 py-2 rounded-md text-sm flex items-center gap-2 ${
+            className={`w-full p-2 rounded-md text-sm flex items-center justify-center gap-2 ${
               isLoading
                 ? 'bg-gray-300 cursor-not-allowed'
                 : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
