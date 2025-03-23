@@ -37,6 +37,24 @@ export default function LoginPage() {
     return `CLT-${timestamp}-${randomStr}`.toUpperCase();
   };
 
+  const checkExistingUser = async (email: string) => {
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password: 'dummy-password', // This will fail but tell us if the user exists
+      });
+
+      // If we get a specific error, the user exists but password is wrong
+      if (error?.message.includes('Invalid login credentials')) {
+        return true;
+      }
+      // If we get a different error, the user doesn't exist
+      return false;
+    } catch (error) {
+      return false;
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -44,22 +62,27 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        // Validate password confirmation for sign up
-        if (password !== confirmPassword) {
-          setError('Passwords do not match');
+        // Check if user already exists
+        const userExists = await checkExistingUser(email);
+        if (userExists) {
+          setError('Email already in use');
+          setIsSignUp(false);
           setLoading(false);
           return;
         }
 
+        // Validate password confirmation for sign up
+        if (password !== confirmPassword) {
+          setError('Passwords do not match');
+          return;
+        }
         const clientId = generateClientId();
         const { error } = await supabaseClient.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback`,
-            data: {
-              client_id: clientId
-            }
+            data: { client_id: clientId },
           },
         });
 
@@ -76,33 +99,182 @@ export default function LoginPage() {
         // Show success message for sign up
         setError('Check your email for the confirmation link!');
         return;
-      }
+      } else {
+        console.log('Attempting sign in...');
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+          email,
+          password,
+        });
+        
+        if (error) {
+          console.error('Sign in error:', error);
+          throw error;
+        }
 
-      // Handle sign in
-      const { error } = await supabaseClient.auth.signInWithPassword({
-        email,
-        password,
-      });
-      
-      if (error) {
-        throw error;
+        console.log('Sign in successful, data:', data);
+        
+        // Get the session after sign in
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        console.log('Session after sign in:', session);
+        
+        if (session) {
+          console.log('Session exists, navigating to home...');
+          // Force a hard refresh to ensure session is properly set
+          window.location.href = '/';
+        } else {
+          console.error('No session after sign in');
+          setError('Failed to establish session. Please try again.');
+        }
       }
-
-      // Instead of making another API call, use the auth state change listener
-      // that's already set up in AuthProvider
-      router.push('/');
     } catch (error: any) {
       console.error('Auth error:', error);
-      if (error.message.includes('Rate limit')) {
-        setError('Too many attempts. Please wait a few minutes before trying again.');
-      } else {
-        setError(error.message);
-      }
+      setError(error.message);
     } finally {
-      setLoading(false);
+      // Ensure the loader stays visible for 3 seconds before hiding
+      setTimeout(() => setLoading(false), 3000);
     }
   };
 
+  // Loader component with fade in/out animation added
+  function Loader() {
+    return (
+      <>
+        <figure className="loader">
+          <div className="dot white"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+        </figure>
+        <style jsx>{`
+          .loader {
+            position: absolute;
+            margin: auto;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            width: 6.250em;
+            height: 6.250em;
+            animation: rotate5123 2.4s linear infinite, fadeInOut 2.4s linear infinite;
+          }
+          .white {
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            animation: flash 2.4s linear infinite;
+            opacity: 0;
+          }
+          .dot {
+            position: absolute;
+            margin: auto;
+            width: 2.4em;
+            height: 2.4em;
+            border-radius: 100%;
+            transition: all 1s ease;
+          }
+          .dot:nth-child(2) {
+            top: 0;
+            bottom: 0;
+            left: 0;
+            background: #FF4444;
+            animation: dotsY 2.4s linear infinite;
+          }
+          .dot:nth-child(3) {
+            left: 0;
+            right: 0;
+            top: 0;
+            background: #FFBB33;
+            animation: dotsX 2.4s linear infinite;
+          }
+          .dot:nth-child(4) {
+            top: 0;
+            bottom: 0;
+            right: 0;
+            background: #99CC00;
+            animation: dotsY 2.4s linear infinite;
+          }
+          .dot:nth-child(5) {
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #33B5E5;
+            animation: dotsX 2.4s linear infinite;
+          }
+          @keyframes rotate5123 {
+            0% {
+              transform: rotate(0);
+            }
+            10% {
+              width: 6.250em;
+              height: 6.250em;
+            }
+            66% {
+              width: 2.4em;
+              height: 2.4em;
+            }
+            100% {
+              transform: rotate(360deg);
+              width: 6.250em;
+              height: 6.250em;
+            }
+          }
+          @keyframes fadeInOut {
+            0% { opacity: 0; }
+            25% { opacity: 1; }
+            75% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+          @keyframes dotsY {
+            66% {
+              opacity: 0.1;
+              width: 2.4em;
+            }
+            77% {
+              opacity: 1;
+              width: 0;
+            }
+          }
+          @keyframes dotsX {
+            66% {
+              opacity: 0.1;
+              height: 2.4em;
+            }
+            77% {
+              opacity: 1;
+              height: 0;
+            }
+          }
+          @keyframes flash {
+            33% {
+              opacity: 0;
+              border-radius: 0%;
+            }
+            55% {
+              opacity: 0.6;
+              border-radius: 100%;
+            }
+            66% {
+              opacity: 0;
+            }
+          }
+        `}</style>
+      </>
+    );
+  }
+
+  // When loading is true, show the loader full-screen
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white relative">
+        <Loader />
+      </div>
+    );
+  }
+  
+  // Otherwise, render the login form
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-white">
       <div className={`w-full max-w-md transform transition-all duration-1000 ${fadeIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
@@ -115,7 +287,6 @@ export default function LoginPage() {
               {isSignUp ? 'Sign up to get started' : 'Sign in to continue'}
             </p>
           </div>
-
           <form onSubmit={handleAuth} className="space-y-6">
             <div className="transform transition-all duration-300 hover:scale-[1.02]">
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -131,7 +302,6 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
-
             <div className="transform transition-all duration-300 hover:scale-[1.02]">
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Password
@@ -146,7 +316,6 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-
             {isSignUp && (
               <div className="transform transition-all duration-300 hover:scale-[1.02]">
                 <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
@@ -163,13 +332,11 @@ export default function LoginPage() {
                 />
               </div>
             )}
-
             {error && (
               <div className="text-red-500 text-sm text-center animate-fade-in">
                 {error}
               </div>
             )}
-
             <button
               type="submit"
               disabled={loading}
@@ -177,17 +344,12 @@ export default function LoginPage() {
             >
               {loading ? (
                 <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
                   Processing...
                 </span>
               ) : (
                 isSignUp ? 'Create Account' : 'Sign In'
               )}
             </button>
-
             <div className="text-center">
               <button
                 type="button"
@@ -209,4 +371,4 @@ export default function LoginPage() {
       </div>
     </div>
   );
-} 
+}
