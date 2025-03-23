@@ -17,6 +17,7 @@ interface Props {
 interface Hypothesis {
   title: string;
   description: string;
+  id?: number;
 }
 
 const ProgressBar = () => {
@@ -85,6 +86,9 @@ export default function ResearchPaperPanel({
   const [paper, setPaper] = useState("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [editingHypothesis, setEditingHypothesis] = useState<number | null>(null);
+  const [editingPaper, setEditingPaper] = useState(false);
+  const [editMessage, setEditMessage] = useState("");
   const supabase = createClientComponentClient();
 
   useEffect(() => {
@@ -148,6 +152,99 @@ Please help me generate a research paper based on this hypothesis.`;
     generateResearchPaper();
   }, [projectId, selectedCard, view, hypotheses, supabase.auth]);
 
+  const handleHypothesisEdit = async (hypothesisId: number, editMessage: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      const selectedHypothesis = hypotheses[hypothesisId - 1];
+      const message = `Please edit the following hypothesis:
+Title: ${selectedHypothesis.title}
+Description: ${selectedHypothesis.description}
+
+Edit request: ${editMessage}`;
+
+      const chatResponse: ChatResponse = await sendMessage(
+        session.user.id,
+        message,
+        projectId
+      );
+
+      // Parse the response to get the edited hypothesis
+      const responseText = chatResponse.response;
+      const sections = responseText.split(/(?=#|##|###)/);
+      
+      // Find the edited hypothesis section
+      const editedSection = sections.find(section => 
+        section.toLowerCase().includes('edited hypothesis') || 
+        section.toLowerCase().includes('updated hypothesis')
+      );
+
+      if (editedSection) {
+        const lines = editedSection.trim().split('\n');
+        const header = lines[0].replace(/^#+\s*/, '').trim();
+        const content = lines.slice(1).join('\n').trim();
+
+        // Update the hypothesis in state
+        setHypotheses(current => 
+          current.map((hyp, index) => 
+            index === hypothesisId - 1 
+              ? { ...hyp, title: header, description: content }
+              : hyp
+          )
+        );
+
+        // Update localStorage
+        const storedContent = localStorage.getItem('processedContent');
+        if (storedContent) {
+          const parsedContent = JSON.parse(storedContent);
+          parsedContent[hypothesisId - 1] = { header, content };
+          localStorage.setItem('processedContent', JSON.stringify(parsedContent));
+        }
+      }
+
+      setEditingHypothesis(null);
+      setEditMessage("");
+    } catch (error) {
+      console.error('Error editing hypothesis:', error);
+      setError(error instanceof Error ? error.message : 'Failed to edit hypothesis');
+    }
+  };
+
+  const handlePaperEdit = async (editMessage: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      const selectedHypothesis = hypotheses[selectedCard! - 1];
+      const message = `Please edit the following research paper based on this hypothesis:
+Title: ${selectedHypothesis.title}
+Description: ${selectedHypothesis.description}
+
+Current paper content:
+${paper}
+
+Edit request: ${editMessage}`;
+
+      const chatResponse: ChatResponse = await sendMessage(
+        session.user.id,
+        message,
+        projectId
+      );
+
+      setPaper(chatResponse.response);
+      setEditingPaper(false);
+      setEditMessage("");
+    } catch (error) {
+      console.error('Error editing paper:', error);
+      setError(error instanceof Error ? error.message : 'Failed to edit paper');
+    }
+  };
+
   const renderContent = () => {
     if (view === "research") {
       if (loading) {
@@ -179,6 +276,41 @@ Please help me generate a research paper based on this hypothesis.`;
                 {paper}
               </div>
             </div>
+            {!editingPaper ? (
+              <button
+                onClick={() => setEditingPaper(true)}
+                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Edit Paper
+              </button>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <textarea
+                  value={editMessage}
+                  onChange={(e) => setEditMessage(e.target.value)}
+                  placeholder="Describe how you want to edit the paper..."
+                  className="w-full p-2 border rounded"
+                  rows={4}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handlePaperEdit(editMessage)}
+                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingPaper(false);
+                      setEditMessage("");
+                    }}
+                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
       }
@@ -195,10 +327,12 @@ Please help me generate a research paper based on this hypothesis.`;
             const cardId = index + 1;
             const isExpanded = expandedCard === cardId;
             const isSelected = selectedCard === cardId;
+            const isEditing = editingHypothesis === cardId;
+            
             return (
               <div
                 key={cardId}
-                onClick={() => setSelectedCard(cardId)}
+                onClick={() => !isEditing && setSelectedCard(cardId)}
                 className={`relative border transition-all duration-700 ease-in-out cursor-pointer
                   ${isExpanded ? "col-span-3 min-w-full min-h-[300px]" : "min-w-0 min-h-[160px]"}
                   ${isSelected 
@@ -207,8 +341,54 @@ Please help me generate a research paper based on this hypothesis.`;
                   p-4 rounded-lg shadow-md`}                
               >
                 <div className="text-xl font-bold text-gray-800 mb-1">#{cardId}</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">{hypothesis.title}</h3>
-                <p className="text-gray-700 text-sm leading-relaxed">{hypothesis.description}</p>
+                {isEditing ? (
+                  <div className="space-y-4">
+                    <textarea
+                      value={editMessage}
+                      onChange={(e) => setEditMessage(e.target.value)}
+                      placeholder="Describe how you want to edit this hypothesis..."
+                      className="w-full p-2 border rounded"
+                      rows={4}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleHypothesisEdit(cardId, editMessage);
+                        }}
+                        className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                      >
+                        Save Changes
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingHypothesis(null);
+                          setEditMessage("");
+                        }}
+                        className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">{hypothesis.title}</h3>
+                    <p className="text-gray-700 text-sm leading-relaxed">{hypothesis.description}</p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingHypothesis(cardId);
+                      }}
+                      className="absolute top-2 right-2 p-1 text-gray-600 hover:text-gray-900"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </button>
+                  </>
+                )}
 
                 <button
                   onClick={(e) => {
@@ -243,92 +423,6 @@ Please help me generate a research paper based on this hypothesis.`;
       return (
         <div className="text-gray-800 text-sm flex flex-col items-center gap-4">
           <p>View or manage uploaded documents here.</p>
-          <button className="custom-button-blue">Download</button>
-          <style jsx>{`
-            .custom-button-blue {
-              background-color: #1e3a8a;
-              color: #3b82f6;
-              border: none;
-              padding: 15px 30px;
-              font-size: 18px;
-              font-weight: bold;
-              border-radius: 30px;
-              box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
-              cursor: pointer;
-              transition: all 0.3s ease;
-              position: relative;
-              overflow: hidden;
-              z-index: 1;
-            }
-
-            .custom-button-blue::before {
-              content: "";
-              position: absolute;
-              top: 50%;
-              left: 50%;
-              width: 300%;
-              height: 300%;
-              background-color: #3b82f6;
-              transition: all 0.3s ease;
-              border-radius: 50%;
-              z-index: -1;
-              transform: translate(-50%, -50%) scale(0);
-            }
-
-            .custom-button-blue:hover::before {
-              transform: translate(-50%, -50%) scale(1);
-              opacity: 0.9;
-            }
-
-            .custom-button-blue:hover {
-              box-shadow: 0 15px 20px rgba(0, 0, 0, 0.4);
-              transform: translateY(-5px);
-              color: #1e3a8a;
-            }
-
-            .custom-button-blue:active::after {
-              content: "";
-              position: absolute;
-              top: 50%;
-              left: 50%;
-              width: 100%;
-              height: 100%;
-              background: rgba(255, 255, 255, 0.2);
-              border-radius: 50%;
-              transform: translate(-50%, -50%) scale(0);
-              animation: ripple 0.6s ease-out;
-              z-index: -1;
-            }
-
-            @keyframes ripple {
-              to {
-                transform: translate(-50%, -50%) scale(4);
-                opacity: 0;
-              }
-            }
-
-            .custom-button-blue::after {
-              content: "";
-              position: absolute;
-              top: 0;
-              left: -75%;
-              width: 50%;
-              height: 100%;
-              background: linear-gradient(
-                120deg,
-                rgba(255, 255, 255, 0) 0%,
-                rgba(255, 255, 255, 0.8) 50%,
-                rgba(255, 255, 255, 0) 100%
-              );
-              transform: skewX(-25deg);
-              transition: all 0.3s ease;
-            }
-
-            .custom-button-blue:hover::after {
-              left: 100%;
-              transition: all 0.5s ease;
-            }
-          `}</style>
         </div>
       );
     }

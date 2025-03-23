@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { sendMessage, initiateChat } from "../api/chatbotService";
+import { sendMessage, initiateChat, uploadFile } from "../api/chatbotService";
 import type { ChatResponse } from "../api/chatbotService";
 import ReactMarkdown from 'react-markdown';
 
@@ -21,6 +21,7 @@ export default function ChatPanel({ projectId }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClientComponentClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const initializeChat = async () => {
@@ -87,6 +88,56 @@ export default function ChatPanel({ projectId }: Props) {
     } catch (error) {
       console.error('Error sending message:', error);
       setError('Failed to send message. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Get current user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      // Get paper ID from localStorage
+      const paperId = localStorage.getItem('currentPaperId');
+      if (!paperId) {
+        throw new Error("No paper ID found");
+      }
+
+      // Upload the file
+      const response = await uploadFile(file, session.user.id, paperId);
+      console.error('File upload response:', response);
+
+      // Add success message to chat
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `File "${file.name}" uploaded successfully.`,
+        timestamp: new Date()
+      }]);
+
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      setError(error instanceof Error ? error.message : 'Failed to upload file');
+      
+      // Add error message to chat
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Failed to upload file "${file.name}". Please try again.`,
+        timestamp: new Date()
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -181,26 +232,51 @@ export default function ChatPanel({ projectId }: Props) {
         ))}
       </div>
 
-      <div className="flex gap-2 mt-auto">
-        <input
-          className="flex-1 border rounded-md px-2 py-1 text-sm"
-          placeholder="Type your message..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-          disabled={isLoading}
-        />
-        <button
-          onClick={handleSendMessage}
-          disabled={isLoading}
-          className={`px-4 py-1 rounded-md ${
-            isLoading
-              ? 'bg-gray-300 cursor-not-allowed'
-              : 'bg-blue-500 hover:bg-blue-600 text-white'
-          }`}
-        >
-          {isLoading ? '...' : '➤'}
-        </button>
+      <div className="flex flex-col gap-2 mt-auto">
+        <div className="flex gap-2">
+          <input
+            className="flex-1 border rounded-md px-2 py-1 text-sm"
+            placeholder="Type your message..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+            disabled={isLoading}
+          />
+          <button
+            onClick={handleSendMessage}
+            disabled={isLoading}
+            className={`px-4 py-1 rounded-md ${
+              isLoading
+                ? 'bg-gray-300 cursor-not-allowed'
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
+            }`}
+          >
+            {isLoading ? '...' : '➤'}
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+            accept=".csv,.xlsx,.xls,.txt,.pdf"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            className={`px-4 py-2 rounded-md text-sm flex items-center gap-2 ${
+              isLoading
+                ? 'bg-gray-300 cursor-not-allowed'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+            Upload Document
+          </button>
+        </div>
       </div>
     </div>
   );
