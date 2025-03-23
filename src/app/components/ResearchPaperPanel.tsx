@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
-import { MathJax } from 'react-mathjax';
-import '../styles/latex.css';
+import { useEffect, useState, useRef } from "react";
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { sendMessage } from "../api/chatbotService";
+import type { ChatResponse } from "../api/chatbotService";
 
 interface Props {
   projectId: string;
@@ -18,6 +19,59 @@ interface Hypothesis {
   description: string;
 }
 
+const ProgressBar = () => {
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    // Start with a fast progress up to 90%
+    const fastProgress = () => {
+      setProgress(prev => {
+        if (prev >= 90) return 90;
+        return prev + 10;
+      });
+    };
+
+    // Then slow down and oscillate between 90-95%
+    const slowProgress = () => {
+      setProgress(prev => {
+        if (prev >= 95) return 90;
+        return prev + 1;
+      });
+    };
+
+    // Initial fast progress
+    const fastInterval = setInterval(fastProgress, 500);
+    
+    // Switch to slow progress after 4.5 seconds (when we reach 90%)
+    setTimeout(() => {
+      clearInterval(fastInterval);
+      progressRef.current = setInterval(slowProgress, 1000);
+    }, 4500);
+
+    return () => {
+      clearInterval(fastInterval);
+      if (progressRef.current) {
+        clearInterval(progressRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="w-full">
+      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-blue-500 transition-all duration-300 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <div className="mt-2 text-sm text-gray-600">
+        Generating research paper... {progress}%
+      </div>
+    </div>
+  );
+};
+
 export default function ResearchPaperPanel({ 
   projectId, 
   view, 
@@ -31,6 +85,7 @@ export default function ResearchPaperPanel({
   const [paper, setPaper] = useState("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
 
   useEffect(() => {
     // Load hypotheses from localStorage
@@ -49,22 +104,27 @@ export default function ResearchPaperPanel({
           // Get the selected hypothesis
           const selectedHypothesis = hypotheses[selectedCard - 1];
           
-          // Generate research paper
-          const response = await fetch('/api/generate-research-paper', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ hypothesis: selectedHypothesis }),
-          });
-
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to generate research paper');
+          // Get current user session
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user?.id) {
+            throw new Error("User not authenticated");
           }
 
-          const data = await response.json();
-          setPaper(data.latex);
+          // Send message to chatbot about the selected hypothesis
+          const message = `I have selected the following hypothesis for my research paper:
+Title: ${selectedHypothesis.title}
+Description: ${selectedHypothesis.description}
+
+Please help me generate a research paper based on this hypothesis.`;
+          
+          const chatResponse: ChatResponse = await sendMessage(
+            session.user.id,
+            message,
+            projectId
+          );
+
+          // Set the paper content from the chatbot response
+          setPaper(chatResponse.response);
         } catch (error) {
           console.error('Error generating research paper:', error);
           setError(error instanceof Error ? error.message : 'Failed to generate research paper');
@@ -75,14 +135,19 @@ export default function ResearchPaperPanel({
     };
 
     generateResearchPaper();
-  }, [projectId, selectedCard, view, hypotheses]);
+  }, [projectId, selectedCard, view, hypotheses, supabase.auth]);
 
   const renderContent = () => {
     if (view === "research") {
       if (loading) {
         return (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div className="flex flex-col items-center justify-center h-full space-y-8">
+            <div className="w-full max-w-md">
+              <ProgressBar />
+            </div>
+            <div className="text-gray-600 text-sm">
+              This may take a few minutes. Please don't close the window.
+            </div>
           </div>
         );
       }
@@ -99,14 +164,9 @@ export default function ResearchPaperPanel({
         return (
           <div className="bg-white p-6 rounded-lg shadow-lg">
             <div className="prose max-w-none">
-              <MathJax.Provider options={{
-                tex2jax: {
-                  inlineMath: [['$', '$']],
-                  displayMath: [['$$', '$$']]
-                }
-              }}>
-                <div className="latex-content" dangerouslySetInnerHTML={{ __html: paper }} />
-              </MathJax.Provider>
+              <div className="whitespace-pre-wrap font-mono text-sm">
+                {paper}
+              </div>
             </div>
           </div>
         );
